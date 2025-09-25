@@ -10,6 +10,7 @@ export enum ServerEvent {
     JOINED = "JOINED",
     LOBBY_UPDATE = "LOBBY_UPDATE",
     GAME_START = "GAME_START",
+    LEFT = "PLAYER_LEFT",
     ERROR = "ERROR",
 }
 
@@ -31,4 +32,5 @@ export type ServerMessage =
     | { type: ServerEvent.JOINED; payload: { newPlayer: Player } }
     | { type: ServerEvent.LOBBY_UPDATE; payload: Player[] }
     | { type: ServerEvent.GAME_START; payload: { players: Player[] } }
+    | { type: ServerEvent.LEFT; payload: { player: Player } }
     | { type: ServerEvent.ERROR; payload: string };

@@ -46,7 +46,10 @@ wss.on("connection", (ws: WebSocket) => {
                 const newPlayer = lobby.addPlayer(name);
                 clientMap.set(ws, newPlayer.id);
 
+                // Acknowledge the joining player
                 SendMessage(ws, { type: ServerEvent.JOINED, payload: { newPlayer } });
+
+                // Notify all clients of the updated lobby
                 BroadcastLobby();
                 break;
             }
@@ -76,8 +79,15 @@ wss.on("connection", (ws: WebSocket) => {
     ws.on("close", () => {
         const playerId = clientMap.get(ws);
         if (playerId) {
+            const player=lobby.getPlayers().find(p=>p.id===playerId);
+            if(player){
+                Broadcast({ type: ServerEvent.LEFT, payload: { player } });
+            }
+            // Remove player from lobby
             lobby.removePlayer(playerId);
             clientMap.delete(ws);
+
+            // Notify all clients of the updated lobby
             BroadcastLobby();
             console.log(`Player ${playerId} disconnected`);
         }
