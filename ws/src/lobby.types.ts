@@ -1,5 +1,6 @@
 // Events the client can send
 export enum LobbyEvent {
+    CREATE_GROUP = "CREATE_GROUP",
     PLAYER_JOINED = "PLAYER_JOINED",
     PLAYER_SET_READY = "PLAYER_SET_READY",
     START_GAME = "START_GAME",
@@ -7,6 +8,7 @@ export enum LobbyEvent {
 
 // Events the server can send
 export enum ServerEvent {
+    GROUP_CREATED = "GROUP_CREATED",
     JOINED = "JOINED",
     LOBBY_UPDATE = "LOBBY_UPDATE",
     GAME_START = "GAME_START",
@@ -23,12 +25,14 @@ export interface Player {
 
 // Messages client → server
 export type ClientMessage =
-    | { type: LobbyEvent.PLAYER_JOINED; payload: { name: string } }
+    | { type: LobbyEvent.CREATE_GROUP; payload: { ownerName: string } }
+    | { type: LobbyEvent.PLAYER_JOINED; payload: { name: string, groupId: string } }
     | { type: LobbyEvent.PLAYER_SET_READY; payload: { ready: boolean } }
     | { type: LobbyEvent.START_GAME };
 
 // Messages server → client
 export type ServerMessage =
+    | { type: ServerEvent.GROUP_CREATED; payload: { groupId: string; owner: Player } }
     | { type: ServerEvent.JOINED; payload: { newPlayer: Player } }
     | { type: ServerEvent.LOBBY_UPDATE; payload: Player[] }
     | { type: ServerEvent.GAME_START; payload: { players: Player[] } }

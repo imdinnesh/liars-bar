@@ -1,1 +1,1 @@
-{"root":["./src/index.ts","./src/lobby.ts","./src/lobby.types.ts","./src/utils/sendmessage.ts"],"version":"5.7.2"}
+{"root":["./src/groupmanager.ts","./src/index.ts","./src/lobby.ts","./src/lobby.types.ts","./src/utils/sendmessage.ts"],"version":"5.7.2"}

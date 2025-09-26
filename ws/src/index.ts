@@ -1,28 +1,30 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { Lobby } from "./lobby";
 import { ClientMessage, LobbyEvent, ServerMessage, ServerEvent } from "./lobby.types";
 import { SendMessage } from "./utils/SendMessage";
+import { GroupManager } from "./GroupManager";
 
 const PORT = 8080;
 const wss = new WebSocketServer({ port: PORT });
-const lobby = new Lobby();
-const clientMap = new Map<WebSocket, string>();
+const groupManager = new GroupManager();
+
+
+// Map: socket -> { playerId, groupId }
+const clientMap = new Map<WebSocket, { playerId: string; groupId: string }>();
 
 console.log(`WebSocket server running on ws://localhost:${PORT}`);
 
-// Broadcast helper
-const Broadcast = (msg: ServerMessage) => {
+// Broadcast helper (to a specific group only)
+const BroadcastToGroup = (groupId: string, msg: ServerMessage) => {
     const data = JSON.stringify(msg);
-    wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
+    wss.clients.forEach((client) => {
+        const mapping = clientMap.get(client);
+        if (
+            mapping?.groupId === groupId &&
+            client.readyState === WebSocket.OPEN
+        ) {
             client.send(data);
         }
     });
-};
-
-// Broadcast current lobby state
-const BroadcastLobby = () => {
-    Broadcast({ type: ServerEvent.LOBBY_UPDATE, payload: lobby.getPlayers() });
 };
 
 wss.on("connection", (ws: WebSocket) => {
@@ -41,55 +43,42 @@ wss.on("connection", (ws: WebSocket) => {
         }
 
         switch (data.type) {
-            case LobbyEvent.PLAYER_JOINED: {
-                const { name } = data.payload;
-                const newPlayer = lobby.addPlayer(name);
-                clientMap.set(ws, newPlayer.id);
 
-                // Acknowledge the joining player
-                SendMessage(ws, { type: ServerEvent.JOINED, payload: { newPlayer } });
 
-                // Notify all clients of the updated lobby
-                BroadcastLobby();
-                break;
-            }
+            case LobbyEvent.CREATE_GROUP:{
+                const {ownerName}=data.payload;
+                const newGroup=groupManager.createGroup(ownerName);
+                clientMap.set(ws,{
+                    groupId:newGroup.groupId,
+                    playerId:newGroup.owner?.id||""
+                })
 
-            case LobbyEvent.PLAYER_SET_READY: {
-                const playerId = clientMap.get(ws);
-                if (!playerId) return;
-                lobby.setPlayerReady(playerId, data.payload.ready);
-                BroadcastLobby();
-                break;
-            }
+                if (newGroup.owner) {
+                    SendMessage(ws, {
+                        type: ServerEvent.GROUP_CREATED,
+                        payload: {
+                            groupId: newGroup.groupId,
+                            owner: newGroup.owner
+                        }
+                    });
 
-            case LobbyEvent.START_GAME: {
-                if (lobby.allReady()) {
-                    Broadcast({ type: ServerEvent.GAME_START, payload: { players: lobby.getPlayers() } });
+                    // Also Update the Group
+                    BroadcastToGroup(newGroup.groupId,{
+                        type: ServerEvent.LOBBY_UPDATE,
+                        payload: newGroup.owner ? [newGroup.owner] : []
+                    })
+
                 } else {
-                    SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not all players are ready" });
+                    SendMessage(ws, {
+                        type: ServerEvent.ERROR,
+                        payload: "Group owner not found"
+                    });
                 }
-                break;
             }
-
-            default:
-                SendMessage(ws, { type: ServerEvent.ERROR, payload: "Unknown message type" });
         }
     });
 
     ws.on("close", () => {
-        const playerId = clientMap.get(ws);
-        if (playerId) {
-            const player=lobby.getPlayers().find(p=>p.id===playerId);
-            if(player){
-                Broadcast({ type: ServerEvent.LEFT, payload: { player } });
-            }
-            // Remove player from lobby
-            lobby.removePlayer(playerId);
-            clientMap.delete(ws);
-
-            // Notify all clients of the updated lobby
-            BroadcastLobby();
-            console.log(`Player ${playerId} disconnected`);
-        }
+        console.log("Client disconnected");
     });
 });

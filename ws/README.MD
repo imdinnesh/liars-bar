@@ -2,6 +2,8 @@
 
 This is the WebSocket server for the Liars Bar game. It manages player connections, lobby state, and game events.
 
+## Lobby Events
+
 ### Client Payloads
 
 #### Once connected, the client can send the following payloads:
