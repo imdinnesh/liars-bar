@@ -30,4 +30,8 @@ export class GroupManager {
         this.groups.delete(groupId);
     }
 
+    // Get all groups
+    getAllGroups(){
+        return Array.from(this.groups.values());
+    }
 }

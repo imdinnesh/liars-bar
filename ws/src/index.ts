@@ -1,12 +1,16 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { ClientMessage, LobbyEvent, ServerMessage, ServerEvent } from "./lobby.types";
+import {
+  ClientMessage,
+  LobbyEvent,
+  ServerMessage,
+  ServerEvent,
+} from "./lobby.types";
 import { SendMessage } from "./utils/SendMessage";
 import { GroupManager } from "./GroupManager";
 
 const PORT = 8080;
 const wss = new WebSocketServer({ port: PORT });
 const groupManager = new GroupManager();
-
 
 // Map: socket -> { playerId, groupId }
 const clientMap = new Map<WebSocket, { playerId: string; groupId: string }>();
@@ -15,70 +19,131 @@ console.log(`WebSocket server running on ws://localhost:${PORT}`);
 
 // Broadcast helper (to a specific group only)
 const BroadcastToGroup = (groupId: string, msg: ServerMessage) => {
-    const data = JSON.stringify(msg);
-    wss.clients.forEach((client) => {
-        const mapping = clientMap.get(client);
-        if (
-            mapping?.groupId === groupId &&
-            client.readyState === WebSocket.OPEN
-        ) {
-            client.send(data);
-        }
-    });
+  const data = JSON.stringify(msg);
+  wss.clients.forEach((client) => {
+    const mapping = clientMap.get(client);
+    if (mapping?.groupId === groupId && client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
 };
 
+// Broadcast to all the members of a grpoup except the sender
+const BroadcastToGroupExceptSender = (
+  sender: WebSocket,
+  groupId: string,
+  msg: ServerMessage
+) => {
+  const data = JSON.stringify(msg);
+  wss.clients.forEach((client) => {
+    const mapping = clientMap.get(client);
+    if (
+      mapping?.groupId === groupId &&
+      client !== sender &&
+      client.readyState === WebSocket.OPEN
+    ) {
+      client.send(data);
+    }
+  });
+}
+
 wss.on("connection", (ws: WebSocket) => {
-    console.log("New client connected");
+  console.log("New client connected");
 
-    ws.on("message", (raw) => {
-        let data: ClientMessage;
-        try {
-            // Parse incoming message
-            // raw is a binary buffer, convert to string
-            // then parse as JSON
-            data = JSON.parse(raw.toString()) as ClientMessage;
-        } catch {
-            SendMessage(ws, { type: ServerEvent.ERROR, payload: "Invalid JSON" });
-            return;
+  ws.on("message", (raw) => {
+    let data: ClientMessage;
+    try {
+      // Parse incoming message
+      // raw is a binary buffer, convert to string
+      // then parse as JSON
+      data = JSON.parse(raw.toString()) as ClientMessage;
+    } catch {
+      SendMessage(ws, { type: ServerEvent.ERROR, payload: "Invalid JSON" });
+      return;
+    }
+
+    switch (data.type) {
+      case LobbyEvent.CREATE_GROUP: {
+        const { ownerName } = data.payload;
+        const newGroup = groupManager.createGroup(ownerName);
+        // Maintain a Map
+        clientMap.set(ws, {
+          groupId: newGroup.groupId,
+          playerId: newGroup.owner?.id || "",
+        });
+
+        // Confirm the Group Owner
+        if (newGroup.owner) {
+          SendMessage(ws, {
+            type: ServerEvent.GROUP_CREATED,
+            payload: {
+              groupId: newGroup.groupId,
+              owner: newGroup.owner,
+            },
+          });
+          return ;
+          // No need to broadcast, as the owner is the only one in the group
+        } else {
+          SendMessage(ws, {
+            type: ServerEvent.ERROR,
+            payload: "Group owner not found",
+          });
+        }
+      }
+
+      // Player joined
+      case LobbyEvent.JOIN_GROUP: {
+        const { groupId, name } = data.payload;
+        const lobby = groupManager.getGroup(groupId);
+
+        // No lobby is found
+        if (!lobby) {
+          SendMessage(ws, {
+            type: ServerEvent.ERROR,
+            payload: "Group not found",
+          });
+          return;
         }
 
-        switch (data.type) {
-
-
-            case LobbyEvent.CREATE_GROUP:{
-                const {ownerName}=data.payload;
-                const newGroup=groupManager.createGroup(ownerName);
-                clientMap.set(ws,{
-                    groupId:newGroup.groupId,
-                    playerId:newGroup.owner?.id||""
-                })
-
-                if (newGroup.owner) {
-                    SendMessage(ws, {
-                        type: ServerEvent.GROUP_CREATED,
-                        payload: {
-                            groupId: newGroup.groupId,
-                            owner: newGroup.owner
-                        }
-                    });
-
-                    // Also Update the Group
-                    BroadcastToGroup(newGroup.groupId,{
-                        type: ServerEvent.LOBBY_UPDATE,
-                        payload: newGroup.owner ? [newGroup.owner] : []
-                    })
-
-                } else {
-                    SendMessage(ws, {
-                        type: ServerEvent.ERROR,
-                        payload: "Group owner not found"
-                    });
-                }
-            }
+        // Lobby is full
+        if (lobby.isFull()) {
+          SendMessage(ws, {
+            type: ServerEvent.ERROR,
+            payload: "Group is full",
+          });
+          return;
         }
-    });
 
-    ws.on("close", () => {
-        console.log("Client disconnected");
-    });
+        // Create a new player and add to the lobby
+        const newPlayer = lobby.addPlayer(name);
+        if (!newPlayer) return;
+
+        clientMap.set(ws, { playerId: newPlayer.id, groupId });
+
+        // Notify the new player
+        SendMessage(ws, {
+          type: ServerEvent.JOINED,
+          payload: { player: newPlayer, groupId },
+        });
+
+        // Notify all others in the group
+        BroadcastToGroupExceptSender(ws, groupId, {
+          type: ServerEvent.PLAYER_JOINED,
+          payload: newPlayer,
+        });
+
+        // Broadcast updated lobby to all in the group
+        BroadcastToGroup(groupId, {
+          type: ServerEvent.LOBBY_UPDATE,
+          payload: lobby.getPlayers(),
+        });
+        break;
+      }
+    }    
+
+  });
+
+  ws.on("close", () => {
+    console.log("Client disconnected");
+  });
 });
