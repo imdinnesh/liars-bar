@@ -63,6 +63,7 @@ wss.on("connection", (ws: WebSocket) => {
     }
 
     switch (data.type) {
+      // Group Created
       case LobbyEvent.CREATE_GROUP: {
         const { ownerName } = data.payload;
         const newGroup = groupManager.createGroup(ownerName);
@@ -138,6 +139,42 @@ wss.on("connection", (ws: WebSocket) => {
           payload: lobby.getPlayers(),
         });
         break;
+      }
+
+      // Player ready
+      case LobbyEvent.PLAYER_SET_READY:{
+        const { ready } = data.payload;
+        const mapping = clientMap.get(ws);
+        if (!mapping) {
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not in a group" });
+          return;
+        }
+        
+        const { groupId, playerId } = mapping;
+        const lobby = groupManager.getGroup(groupId);
+
+        if (!lobby) {
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Group not found" });
+          return;
+        }
+
+        lobby.setPlayerReady(playerId, ready);
+
+        // Broadcast updated lobby to all in the group
+        BroadcastToGroup(groupId, {
+          type: ServerEvent.LOBBY_UPDATE,
+          payload: lobby.getPlayers(),
+        });
+
+        // If all players are ready, start the game
+        if (lobby.allReady()) {
+          BroadcastToGroup(groupId, {
+            type: ServerEvent.GAME_START,
+            payload: "All players are ready. Game is starting!",
+          });
+        }
+        break;
+
       }
     }    
 
