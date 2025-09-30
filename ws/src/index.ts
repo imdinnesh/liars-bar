@@ -176,6 +176,35 @@ wss.on("connection", (ws: WebSocket) => {
         break;
 
       }
+      // Start Game 
+      case LobbyEvent.START_GAME:{
+        const mapping = clientMap.get(ws);
+        if (!mapping) {
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not in a group" });
+          return;
+        }
+        
+        const { groupId, playerId } = mapping;
+        const lobby = groupManager.getGroup(groupId);
+
+        if (!lobby) {
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Group not found" });
+          return;
+        }
+
+        // Check if all players are ready
+        if (!lobby.allReady()) {
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not all players are ready" });
+          return;
+        }
+
+        // Broadcast game start to all in the group
+        BroadcastToGroup(groupId, {
+          type: ServerEvent.GAME_START,
+          payload: "Game is starting!",
+        });
+        break;
+      }
     }    
 
   });
