@@ -5,8 +5,9 @@ export class Lobby {
     private players: Map<string, Player> = new Map();
     readonly groupId: string; // Unique identifier for the lobby
     private readonly MAX_SIZE = 4; // Maximum number of players allowed
+    public owner: Player | null = null; // Owner of the lobby
 
-    constructor(groupId: string="default-group") {
+    constructor(groupId: string = "default-group") {
         this.groupId = groupId;
     }
 
@@ -24,12 +25,24 @@ export class Lobby {
         };
 
         this.players.set(generatedId, newPlayer);
+
+        // If this is the first player in the lobby, make them the owner
+        if (this.players.size === 1) {
+            this.owner = newPlayer;
+        }
+
         return newPlayer;
     }
 
     // Remove a player from the lobby by ID
     removePlayer(id: string): void {
         this.players.delete(id);
+
+        // If owner left, assign a new owner (first player remaining)
+        if (this.owner?.id === id) {
+            const nextPlayer = this.players.values().next().value;
+            this.owner = nextPlayer || null;
+        }
     }
 
     // Set a player's ready status

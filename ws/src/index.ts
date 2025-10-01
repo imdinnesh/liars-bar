@@ -28,7 +28,7 @@ const BroadcastToGroup = (groupId: string, msg: ServerMessage) => {
   });
 };
 
-// Broadcast to all the members of a grpoup except the sender
+// Broadcast to all the members of a group except the sender
 const BroadcastToGroupExceptSender = (
   sender: WebSocket,
   groupId: string,
@@ -82,7 +82,7 @@ wss.on("connection", (ws: WebSocket) => {
               owner: newGroup.owner,
             },
           });
-          return ;
+          return;
           // No need to broadcast, as the owner is the only one in the group
         } else {
           SendMessage(ws, {
@@ -142,14 +142,14 @@ wss.on("connection", (ws: WebSocket) => {
       }
 
       // Player ready
-      case LobbyEvent.PLAYER_SET_READY:{
+      case LobbyEvent.PLAYER_SET_READY: {
         const { ready } = data.payload;
         const mapping = clientMap.get(ws);
         if (!mapping) {
           SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not in a group" });
           return;
         }
-        
+
         const { groupId, playerId } = mapping;
         const lobby = groupManager.getGroup(groupId);
 
@@ -165,25 +165,15 @@ wss.on("connection", (ws: WebSocket) => {
           type: ServerEvent.LOBBY_UPDATE,
           payload: lobby.getPlayers(),
         });
-
-        // If all players are ready, start the game
-        if (lobby.allReady()) {
-          BroadcastToGroup(groupId, {
-            type: ServerEvent.GAME_START,
-            payload: "All players are ready. Game is starting!",
-          });
-        }
-        break;
-
       }
-      // Start Game 
-      case LobbyEvent.START_GAME:{
+      // Start Game By the Owner 
+      case LobbyEvent.START_GAME: {
         const mapping = clientMap.get(ws);
         if (!mapping) {
           SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not in a group" });
           return;
         }
-        
+
         const { groupId, playerId } = mapping;
         const lobby = groupManager.getGroup(groupId);
 
@@ -192,20 +182,38 @@ wss.on("connection", (ws: WebSocket) => {
           return;
         }
 
-        // Check if all players are ready
-        if (!lobby.allReady()) {
-          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not all players are ready" });
+        // Check owner
+        if (lobby.owner?.id !== playerId) {
+          SendMessage(ws, {
+            type: ServerEvent.ERROR,
+            payload: "Only the group owner can start the game"
+          });
           return;
         }
 
-        // Broadcast game start to all in the group
+        // Check all players are ready before starting
+        if (!lobby.allReady()) {
+          SendMessage(ws, {
+            type: ServerEvent.ERROR,
+            payload: "All players must be ready before starting",
+          });
+          return;
+        }
+
+        // Broadcast to everyone in the group that game started
         BroadcastToGroup(groupId, {
-          type: ServerEvent.GAME_START,
-          payload: "Game is starting!",
+          type: ServerEvent.GAME_STARTED,
+          payload: {
+            groupId,
+            players: lobby.getPlayers(),
+            startedBy: lobby.owner,
+          },
         });
         break;
       }
-    }    
+
+
+    }
 
   });
 

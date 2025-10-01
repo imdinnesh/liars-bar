@@ -16,7 +16,7 @@ export enum ServerEvent {
     JOINED = "JOINED",
     PLAYER_JOINED = "PLAYER_JOINED",
     LOBBY_UPDATE = "LOBBY_UPDATE",
-    GAME_START = "GAME_START",
+    GAME_STARTED = "GAME_START",
     LEFT = "LEFT",
     ERROR = "ERROR",
 }
