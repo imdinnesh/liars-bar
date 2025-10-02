@@ -219,5 +219,31 @@ wss.on("connection", (ws: WebSocket) => {
 
   ws.on("close", () => {
     console.log("Client disconnected");
+    const mapping = clientMap.get(ws);
+    if (mapping) {
+      const { groupId, playerId } = mapping;
+      const lobby = groupManager.getGroup(groupId);
+      lobby?.removePlayer(playerId);
+
+      // Notify all others in the group
+      BroadcastToGroupExceptSender(ws, groupId, {
+        type: ServerEvent.PLAYER_LEFT,
+        payload: playerId,
+      });
+
+      // If the lobby is empty, remove it
+      if (lobby && lobby.getPlayers().length === 0) {
+        groupManager.removeGroup(groupId);
+      }
+      clientMap.delete(ws);
+
+      // Broadcast updated lobby to all in the group
+      BroadcastToGroup(groupId, {
+        type: ServerEvent.LOBBY_UPDATE,
+        payload: lobby?.getPlayers() || [],
+      });
+      
+    }
+
   });
 });
