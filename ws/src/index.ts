@@ -4,149 +4,136 @@ import {
   LobbyEvent,
   ServerMessage,
   ServerEvent,
+  CreateGroupPayload,
+  JoinGroupPayload,
+  SetReadyPayload,
+  LobbyUpdatePayload,
+  GameStartedPayload,
+  GroupCreatedPayload,
+  JoinedPayload,
+  ErrorPayload,
+  Player,
+  PlayerLeftPayload
 } from "./lobby.types";
 import { SendMessage } from "./utils/SendMessage";
 import { GroupManager } from "./GroupManager";
+import { Logger } from "./utils/Logger";
 
-const PORT = 8080;
-const wss = new WebSocketServer({ port: PORT });
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocketServer({ port: Number(PORT) });
 const groupManager = new GroupManager();
+const logger = new Logger();
 
 // Map: socket -> { playerId, groupId }
 const clientMap = new Map<WebSocket, { playerId: string; groupId: string }>();
 
-console.log(`WebSocket server running on ws://localhost:${PORT}`);
+logger.info(`WebSocket server running on ws://localhost:${PORT}`);
 
-// Broadcast helper (to a specific group only)
-const BroadcastToGroup = (groupId: string, msg: ServerMessage) => {
-  const data = JSON.stringify(msg);
-  wss.clients.forEach((client) => {
-    const mapping = clientMap.get(client);
-    if (mapping?.groupId === groupId && client.readyState === WebSocket.OPEN) {
-      client.send(data);
-    }
-  });
-};
-
-// Broadcast to all the members of a group except the sender
-const BroadcastToGroupExceptSender = (
-  sender: WebSocket,
+// Broadcast helper to a specific group
+const broadcastToGroup = (
   groupId: string,
-  msg: ServerMessage
+  msg: ServerMessage,
+  excludeClient?: WebSocket
 ) => {
   const data = JSON.stringify(msg);
   wss.clients.forEach((client) => {
     const mapping = clientMap.get(client);
     if (
       mapping?.groupId === groupId &&
-      client !== sender &&
-      client.readyState === WebSocket.OPEN
+      client.readyState === WebSocket.OPEN &&
+      client !== excludeClient
     ) {
       client.send(data);
     }
   });
-}
+};
 
 wss.on("connection", (ws: WebSocket) => {
-  console.log("New client connected");
+  logger.info("New client connected");
 
   ws.on("message", (raw) => {
     let data: ClientMessage;
     try {
-      // Parse incoming message
-      // raw is a binary buffer, convert to string
-      // then parse as JSON
-      data = JSON.parse(raw.toString()) as ClientMessage;
-    } catch {
-      SendMessage(ws, { type: ServerEvent.ERROR, payload: "Invalid JSON" });
+      data = JSON.parse(raw.toString());
+    } catch (e) {
+      const errorPayload: ErrorPayload = { message: "Invalid JSON" };
+      SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
       return;
     }
 
     switch (data.type) {
-      // Group Created
       case LobbyEvent.CREATE_GROUP: {
-        const { ownerName } = data.payload;
+        const { ownerName } = data.payload as CreateGroupPayload;
         const newGroup = groupManager.createGroup(ownerName);
-        // Maintain a Map
+        if (!newGroup.owner) {
+          const errorPayload: ErrorPayload = { message: "Failed to create group owner" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
+          return;
+        }
+
         clientMap.set(ws, {
           groupId: newGroup.groupId,
-          playerId: newGroup.owner?.id || "",
+          playerId: newGroup.owner.id,
         });
 
-        // Confirm the Group Owner
-        if (newGroup.owner) {
-          SendMessage(ws, {
-            type: ServerEvent.GROUP_CREATED,
-            payload: {
-              groupId: newGroup.groupId,
-              owner: newGroup.owner,
-            },
-          });
-          return;
-          // No need to broadcast, as the owner is the only one in the group
-        } else {
-          SendMessage(ws, {
-            type: ServerEvent.ERROR,
-            payload: "Group owner not found",
-          });
-        }
+        const responsePayload: GroupCreatedPayload = {
+          groupId: newGroup.groupId,
+          owner: newGroup.owner,
+        };
+        SendMessage(ws, { type: ServerEvent.GROUP_CREATED, payload: responsePayload });
+        logger.info(`New group created with ID: ${newGroup.groupId}`);
+        break;
       }
 
-      // Player joined
       case LobbyEvent.JOIN_GROUP: {
-        const { groupId, name } = data.payload;
+        const { groupId, name } = data.payload as JoinGroupPayload;
         const lobby = groupManager.getGroup(groupId);
 
-        // No lobby is found
         if (!lobby) {
-          SendMessage(ws, {
-            type: ServerEvent.ERROR,
-            payload: "Group not found",
-          });
+          const errorPayload: ErrorPayload = { message: "Group not found" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
-        // Lobby is full
         if (lobby.isFull()) {
-          SendMessage(ws, {
-            type: ServerEvent.ERROR,
-            payload: "Group is full",
-          });
+          const errorPayload: ErrorPayload = { message: "Group is full" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
-        // Create a new player and add to the lobby
         const newPlayer = lobby.addPlayer(name);
-        if (!newPlayer) return;
+        if (!newPlayer) {
+          const errorPayload: ErrorPayload = { message: "Failed to add player to lobby" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
+          return;
+        }
 
         clientMap.set(ws, { playerId: newPlayer.id, groupId });
 
-        // Notify the new player
-        SendMessage(ws, {
-          type: ServerEvent.JOINED,
-          payload: { player: newPlayer, groupId },
-        });
+        const joinedPayload: JoinedPayload = { player: newPlayer, groupId };
+        SendMessage(ws, { type: ServerEvent.JOINED, payload: joinedPayload });
+        logger.info(`Player '${name}' joined group '${groupId}'`);
 
-        // Notify all others in the group
-        BroadcastToGroupExceptSender(ws, groupId, {
+        broadcastToGroup(groupId, {
           type: ServerEvent.PLAYER_JOINED,
           payload: newPlayer,
-        });
+        }, ws);
 
-        // Broadcast updated lobby to all in the group
-        BroadcastToGroup(groupId, {
+        const lobbyUpdatePayload: LobbyUpdatePayload = lobby.getLobbyState();
+        broadcastToGroup(groupId, {
           type: ServerEvent.LOBBY_UPDATE,
-          payload: lobby.getPlayers(),
+          payload: lobbyUpdatePayload,
         });
         break;
       }
 
-      // Player ready
       case LobbyEvent.PLAYER_SET_READY: {
-        const { ready } = data.payload;
+        const { ready } = data.payload as SetReadyPayload;
         const mapping = clientMap.get(ws);
+
         if (!mapping) {
-          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not in a group" });
+          const errorPayload: ErrorPayload = { message: "Not in a group" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
@@ -154,23 +141,27 @@ wss.on("connection", (ws: WebSocket) => {
         const lobby = groupManager.getGroup(groupId);
 
         if (!lobby) {
-          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Group not found" });
+          const errorPayload: ErrorPayload = { message: "Group not found" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
         lobby.setPlayerReady(playerId, ready);
+        logger.info(`Player '${playerId}' set ready status to '${ready}' in group '${groupId}'`);
 
-        // Broadcast updated lobby to all in the group
-        BroadcastToGroup(groupId, {
+        const lobbyUpdatePayload: LobbyUpdatePayload = lobby.getLobbyState();
+        broadcastToGroup(groupId, {
           type: ServerEvent.LOBBY_UPDATE,
-          payload: lobby.getPlayers(),
+          payload: lobbyUpdatePayload,
         });
+        break;
       }
-      // Start Game By the Owner 
+      
       case LobbyEvent.START_GAME: {
         const mapping = clientMap.get(ws);
         if (!mapping) {
-          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Not in a group" });
+          const errorPayload: ErrorPayload = { message: "Not in a group" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
@@ -178,72 +169,75 @@ wss.on("connection", (ws: WebSocket) => {
         const lobby = groupManager.getGroup(groupId);
 
         if (!lobby) {
-          SendMessage(ws, { type: ServerEvent.ERROR, payload: "Group not found" });
+          const errorPayload: ErrorPayload = { message: "Group not found" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
-        // Check owner
         if (lobby.owner?.id !== playerId) {
-          SendMessage(ws, {
-            type: ServerEvent.ERROR,
-            payload: "Only the group owner can start the game"
-          });
+          const errorPayload: ErrorPayload = { message: "Only the group owner can start the game" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
 
-        // Check all players are ready before starting
         if (!lobby.allReady()) {
-          SendMessage(ws, {
-            type: ServerEvent.ERROR,
-            payload: "All players must be ready before starting",
-          });
+          const errorPayload: ErrorPayload = { message: "All players must be ready before starting" };
+          SendMessage(ws, { type: ServerEvent.ERROR, payload: errorPayload });
           return;
         }
-
-        // Broadcast to everyone in the group that game started
-        BroadcastToGroup(groupId, {
+        
+        const gameStartedPayload: GameStartedPayload = {
+          groupId,
+          players: lobby.getLobbyState().players,
+          startedBy: lobby.owner,
+        };
+        broadcastToGroup(groupId, {
           type: ServerEvent.GAME_STARTED,
-          payload: {
-            groupId,
-            players: lobby.getPlayers(),
-            startedBy: lobby.owner,
-          },
+          payload: gameStartedPayload,
         });
+        logger.info(`Game started in group '${groupId}'`);
         break;
       }
-
-
     }
-
   });
 
   ws.on("close", () => {
-    console.log("Client disconnected");
+    logger.info("Client disconnected");
     const mapping = clientMap.get(ws);
     if (mapping) {
       const { groupId, playerId } = mapping;
       const lobby = groupManager.getGroup(groupId);
       lobby?.removePlayer(playerId);
 
-      // Notify all others in the group
-      BroadcastToGroupExceptSender(ws, groupId, {
-        type: ServerEvent.PLAYER_LEFT,
-        payload: playerId,
-      });
+      if (lobby) {
+        const playerLeftPayload: PlayerLeftPayload = { id: playerId };
+        broadcastToGroup(groupId, {
+          type: ServerEvent.PLAYER_LEFT,
+          payload: playerLeftPayload,
+        }, ws);
 
-      // If the lobby is empty, remove it
-      if (lobby && lobby.getPlayers().length === 0) {
-        groupManager.removeGroup(groupId);
+        if (lobby.getPlayers().length === 0) {
+          groupManager.removeGroup(groupId);
+          logger.info(`Group '${groupId}' removed as it's now empty`);
+        } else {
+          const lobbyUpdatePayload: LobbyUpdatePayload = lobby.getLobbyState();
+          broadcastToGroup(groupId, {
+            type: ServerEvent.LOBBY_UPDATE,
+            payload: lobbyUpdatePayload,
+          });
+        }
       }
       clientMap.delete(ws);
-
-      // Broadcast updated lobby to all in the group
-      BroadcastToGroup(groupId, {
-        type: ServerEvent.LOBBY_UPDATE,
-        payload: lobby?.getPlayers() || [],
-      });
-      
+      logger.info(`Player '${playerId}' removed from group '${groupId}'`);
     }
+  });
+});
 
+process.on("SIGINT", () => {
+  logger.info("SIGINT signal received: Closing WebSocket server.");
+  wss.clients.forEach(client => client.close());
+  wss.close(() => {
+    logger.info("Server closed.");
+    process.exit(0);
   });
 });

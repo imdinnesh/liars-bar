@@ -1,37 +1,28 @@
 import { Lobby } from "./lobby";
+import { Player } from "./lobby.types";
 
 export class GroupManager {
-    // Map of group ID to Lobby instance
-    private groups=new Map<string,Lobby>();
+    private groups = new Map<string, Lobby>();
 
-    // Create a new group and return its ID
-    createGroup(ownerName:string){
-        // Generate a unique ID for the group
-        const groupId=crypto.randomUUID();
-        // Create a new Lobby instance
-        const newLobby=new Lobby(groupId);
-
-        // Add the owner as the first player in the lobby
-        const owner=newLobby.addPlayer(ownerName);
+    createGroup(ownerName: string): { groupId: string; owner: Player | null } {
+        const groupId = crypto.randomUUID();
+        const newLobby = new Lobby(groupId);
+        const owner = newLobby.addPlayer(ownerName);
         
-        // Store the new lobby in the groups map
-        this.groups.set(groupId,newLobby);
+        this.groups.set(groupId, newLobby);
 
-        return {groupId,owner};
+        return { groupId, owner };
     }
 
-    // Get a lobby by its ID
-    getGroup(groupId:string){
+    getGroup(groupId: string): Lobby | undefined {
         return this.groups.get(groupId);
     }
 
-    // Remove a group by its ID
-    removeGroup(groupId:string){
+    removeGroup(groupId: string): void {
         this.groups.delete(groupId);
     }
 
-    // Get all groups
-    getAllGroups(){
+    getAllGroups(): Lobby[] {
         return Array.from(this.groups.values());
     }
 }

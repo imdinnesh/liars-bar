@@ -13,9 +13,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "pino": "^9.13.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@types/pino": "^7.0.4",
     "@types/ws": "^8.18.1"
   }
 }
