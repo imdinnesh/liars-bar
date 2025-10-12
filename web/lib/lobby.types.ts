@@ -1,50 +1,74 @@
 export interface Player {
-  id: string;
-  name: string;
-  ready: boolean;
+    id: string;
+    name: string;
+    ready: boolean;
 }
 
 export enum LobbyEvent {
-  CREATE_GROUP = "CREATE_GROUP",
-  JOIN_GROUP = "JOIN_GROUP",
-  PLAYER_SET_READY = "PLAYER_SET_READY",
-  START_GAME = "START_GAME",
+    CREATE_GROUP = "CREATE_GROUP",
+    JOIN_GROUP = "JOIN_GROUP",
+    PLAYER_SET_READY = "PLAYER_SET_READY",
+    START_GAME = "START_GAME",
 }
 
 export enum ServerEvent {
-  GROUP_CREATED = "GROUP_CREATED",
-  JOINED = "JOINED",
-  LOBBY_UPDATE = "LOBBY_UPDATE",
-  PLAYER_JOINED = "PLAYER_JOINED",
-  PLAYER_LEFT = "PLAYER_LEFT",
-  GAME_STARTED = "GAME_STARTED",
-  ERROR = "ERROR",
+    GROUP_CREATED = "GROUP_CREATED",
+    JOINED = "JOINED",
+    PLAYER_JOINED = "PLAYER_JOINED",
+    LOBBY_UPDATE = "LOBBY_UPDATE",
+    GAME_STARTED = "GAME_STARTED",
+    PLAYER_LEFT = "PLAYER_LEFT",
+    ERROR = "ERROR",
 }
 
 export interface CreateGroupPayload {
-  ownerName: string;
+    ownerName: string;
 }
 
 export interface JoinGroupPayload {
-  groupId: string;
-  name: string;
+    groupId: string;
+    name: string;
 }
 
 export interface SetReadyPayload {
-  ready: boolean;
+    ready: boolean;
 }
 
-export type ClientMessage =
-  | { type: LobbyEvent.CREATE_GROUP; payload: CreateGroupPayload }
-  | { type: LobbyEvent.JOIN_GROUP; payload: JoinGroupPayload }
-  | { type: LobbyEvent.PLAYER_SET_READY; payload: SetReadyPayload }
-  | { type: LobbyEvent.START_GAME; payload?: undefined };
+export interface GroupCreatedPayload {
+    groupId: string;
+    owner: Player;
+}
 
-export type ServerMessage =
-  | { type: ServerEvent.GROUP_CREATED; payload: any }
-  | { type: ServerEvent.JOINED; payload: any }
-  | { type: ServerEvent.LOBBY_UPDATE; payload: any }
-  | { type: ServerEvent.PLAYER_JOINED; payload: Player }
-  | { type: ServerEvent.PLAYER_LEFT; payload: { id: string } }
-  | { type: ServerEvent.GAME_STARTED; payload: any }
-  | { type: ServerEvent.ERROR; payload: { message: string } };
+export interface JoinedPayload {
+    player: Player;
+    groupId: string;
+}
+
+export interface LobbyUpdatePayload {
+    ownerId: string | null;
+    players: Player[];
+}
+
+export interface GameStartedPayload {
+    groupId: string;
+    players: Player[];
+    startedBy: Player;
+}
+
+export interface PlayerLeftPayload {
+    id: string;
+}
+
+export interface ErrorPayload {
+    message: string;
+}
+
+export interface ClientMessage {
+    type: LobbyEvent;
+    payload: CreateGroupPayload | JoinGroupPayload | SetReadyPayload;
+}
+
+export interface ServerMessage {
+    type: ServerEvent;
+    payload: GroupCreatedPayload | JoinedPayload | LobbyUpdatePayload | GameStartedPayload | PlayerLeftPayload | ErrorPayload | Player;
+}
