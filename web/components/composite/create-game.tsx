@@ -12,6 +12,7 @@ import { type CreateGameForm, createGameSchema } from "@/schemas/lobby.schema"
 import { useWebSocket } from "@/hooks/webSocket"
 import { type GroupCreatedPayload, LobbyEvent, ServerEvent } from "@/lib/lobby.types"
 import { useEffect, useState } from "react"
+import { toast } from "sonner"
 
 export function CreateGame() {
   const [groupId, setGroupId] = useState<string | null>(null)
@@ -48,6 +49,7 @@ export function CreateGame() {
       case ServerEvent.GROUP_CREATED:
         const payload = lastMessage.payload as GroupCreatedPayload
         setGroupId(payload.groupId)
+        toast.success("Game created! Share the Group ID with friends.")
         break
     }
   }, [messages, reset])

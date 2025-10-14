@@ -51,7 +51,7 @@ export function JoinGame() {
         switch (lastMessage.type) {
             case ServerEvent.JOINED:
                 const payload = lastMessage.payload as JoinedPayload
-
+                console.log(payload);
                 break
         }
     }, [messages, reset])
